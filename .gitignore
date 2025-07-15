@@ -1,0 +1,36 @@
+# Directory per i log
+/var/log/watchpot/
+
+# Directory per le foto
+/var/lib/watchpot/
+
+# File di configurazione sensibili
+/etc/watchpot/email_config.json
+
+# File temporanei
+*.tmp
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test files
+test_*.jpg
+*.test

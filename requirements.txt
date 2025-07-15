@@ -1,0 +1,5 @@
+# Python dependencies for WatchPot
+# System monitoring and information
+psutil>=5.8.0
+# HTTP requests for public IP detection
+requests>=2.25.1

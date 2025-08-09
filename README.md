@@ -63,7 +63,7 @@ Photo capture configuration:
     "photo_width": 1920,
     "photo_height": 1080,
     "photo_quality": 95,
-    "photos_dir": "/var/lib/watchpot/photos",
+    "photos_dir": "photos",
     "max_photos_keep": 100
 }
 ```
@@ -143,12 +143,12 @@ sudo systemctl disable watchpot.timer
 sudo journalctl -u watchpot.service -f
 
 # Application logs
-sudo tail -f /var/log/watchpot/watchpot.log
-sudo tail -f /var/log/watchpot/capture.log
-sudo tail -f /var/log/watchpot/email.log
+tail -f logs/watchpot.log
+tail -f logs/capture.log
+tail -f logs/email.log
 
 # List captured photos
-ls -la /var/lib/watchpot/photos/
+ls -la photos/
 
 # Next scheduled executions
 sudo systemctl list-timers watchpot.timer
@@ -161,7 +161,7 @@ sudo systemctl list-timers watchpot.timer
 sudo -u pi python3 /opt/watchpot/scripts/capture_photo.py
 
 # Test email sending (replace with actual photo path)
-sudo -u pi python3 /opt/watchpot/scripts/send_email.py /var/lib/watchpot/photos/watchpot_20250716_143022.jpg
+python3 scripts/send_email.py photos/watchpot_20250716_143022.jpg
 ```
 
 ## Project Structure
@@ -189,8 +189,8 @@ watchpot/
 ```
 /opt/watchpot/scripts/      # Executable scripts
 /etc/watchpot/              # Configuration files
-/var/lib/watchpot/photos/   # Photo directory
-/var/log/watchpot/          # Log files
+photos/                     # Photo directory
+logs/                       # Log files
 ```
 
 ## Security
@@ -227,7 +227,7 @@ sudo cat /etc/watchpot/email_config.json
 telnet smtp.gmail.com 587
 
 # Check email logs
-sudo tail -f /var/log/watchpot/email.log
+tail -f logs/email.log
 ```
 
 ### Service won't start

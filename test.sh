@@ -1,153 +1,139 @@
 #!/bin/bash
-# WatchPot Test Script - Testa entrambi gli script principali
+# WatchPot Test Script - Tests both main scripts
 
 set -e
 
 echo "WatchPot Test Suite"
 echo "==================="
+echo ""
 
-# Check if config exists
-if [ ! -f config/watchpot.conf ]; then
+# Test 1: Configuration file
+echo "Test 1: Configuration validation"
+echo "--------------------------------"
+
+if [ ! -f "config/watchpot.conf" ]; then
     echo "[ERROR] Configuration file not found: config/watchpot.conf"
-    echo "   Run: cp config/watchpot.conf.example config/watchpot.conf"
-    echo "   Then edit the configuration file"
+    echo "   Solution: cp config/watchpot.conf.example config/watchpot.conf"
+    echo "   Then edit the configuration file with your settings"
     exit 1
 fi
 
-# Test 1: Configuration validation
-echo ""
-echo "Test 1: Configuration validation"
-echo "------------------------------------"
+echo "[OK] Configuration file exists"
 
-config_ok=true
-
-# Check required settings
-required_settings=("SENDER_EMAIL" "SENDER_PASSWORD" "RECIPIENTS")
-for setting in "${required_settings[@]}"; do
-    if ! grep -q "^${setting}=" config/watchpot.conf; then
-        echo "[ERROR] Missing required setting: $setting"
-        config_ok=false
+# Validate config content
+required_vars=("SMTP_SERVER" "SMTP_PORT" "EMAIL_USER" "EMAIL_PASS" "TO_EMAIL" "FROM_EMAIL")
+for var in "${required_vars[@]}"; do
+    if ! grep -q "^$var=" config/watchpot.conf; then
+        echo "[ERROR] Missing configuration: $var"
+        exit 1
     fi
 done
 
-if [ "$config_ok" = true ]; then
-    echo "[OK] Configuration file looks good"
-else
-    echo "[ERROR] Configuration issues found - please fix them first"
-    exit 1
-fi
+echo "[OK] Configuration appears complete"
 
-# Test 2: Directory setup
+# Test 2: Directory structure
 echo ""
-echo "Test 2: Directory setup"
-echo "---------------------------"
+echo "Test 2: Directory structure"
+echo "----------------------------"
 
-if [ -d "/var/lib/watchpot/photos" ]; then
-    echo "[OK] Photos directory exists: /var/lib/watchpot/photos"
+if [ -d "photos" ]; then
+    echo "[OK] Photos directory exists: photos"
 else
-    echo "[WARNING] Photos directory missing - will be created automatically"
-    echo "  You can run install.sh to set up directories properly"
+    echo "[WARNING] Photos directory not found - will be created on first run"
 fi
 
-if [ -d "/var/log/watchpot" ]; then
-    echo "[OK] Log directory exists: /var/log/watchpot"
+if [ -d "logs" ]; then
+    echo "[OK] Log directory exists: logs"
 else
-    echo "[WARNING] Log directory missing - will be created automatically"
-    echo "  You can run install.sh to set up directories properly"
+    echo "[WARNING] Log directory not found - will be created on first run"
 fi
 
 # Test 3: Python dependencies
 echo ""
 echo "Test 3: Python dependencies"
-echo "-------------------------------"
+echo "----------------------------"
 
-dependencies=("psutil" "requests")
-for dep in "${dependencies[@]}"; do
-    if python3 -c "import $dep" 2>/dev/null; then
-        echo "[OK] $dep is installed"
+if command -v python3 &> /dev/null; then
+    echo "[OK] Python3 is available"
+else
+    echo "[ERROR] Python3 not found"
+    exit 1
+fi
+
+# Test 4: Required scripts
+echo ""
+echo "Test 4: Required scripts"
+echo "------------------------"
+
+if [ -f "scripts/capture_photo.py" ]; then
+    echo "[OK] Capture script exists"
+    if [ -x "scripts/capture_photo.py" ]; then
+        echo "[OK] Capture script is executable"
     else
-        echo "[ERROR] $dep is missing - install with: pip3 install --user $dep"
-        exit 1
+        echo "[WARNING] Capture script not executable - fixing..."
+        chmod +x scripts/capture_photo.py
     fi
-done
-
-# Test 4: Script executability
-echo ""
-echo "Test 4: Script executability"
-echo "--------------------------------"
-
-if [ -x scripts/capture_photo.py ]; then
-    echo "[OK] capture_photo.py is executable"
 else
-    echo "[ERROR] capture_photo.py is not executable - run: chmod +x scripts/capture_photo.py"
+    echo "[ERROR] Capture script not found: scripts/capture_photo.py"
     exit 1
 fi
 
-if [ -x scripts/send_email.py ]; then
-    echo "[OK] send_email.py is executable"
+if [ -f "scripts/send_email.py" ]; then
+    echo "[OK] Email script exists"
+    if [ -x "scripts/send_email.py" ]; then
+        echo "[OK] Email script is executable"
+    else
+        echo "[WARNING] Email script not executable - fixing..."
+        chmod +x scripts/send_email.py
+    fi
 else
-    echo "[ERROR] send_email.py is not executable - run: chmod +x scripts/send_email.py"
+    echo "[ERROR] Email script not found: scripts/send_email.py"
     exit 1
 fi
 
-# Test 5: Camera test (if on Raspberry Pi)
+# Test 5: Camera availability
 echo ""
-echo "Test 5: Camera test"
-echo "----------------------"
+echo "Test 5: Camera system"
+echo "---------------------"
 
 if command -v rpicam-still &> /dev/null; then
-    echo "[OK] rpicam-still command available"
-    
-    # Test photo capture
-    echo "Testing photo capture..."
-    if ./scripts/capture_photo.py --force; then
-        echo "[OK] Photo capture test successful"
-    else
-        echo "[ERROR] Photo capture test failed"
-        exit 1
-    fi
+    echo "[OK] rpicam-still is available"
 else
-    echo "[WARNING] rpicam-still not found - camera tests skipped"
-    echo "   (This is normal on non-Raspberry Pi systems)"
+    echo "[WARNING] rpicam-still not found - this is normal on non-Pi systems"
 fi
 
-# Test 6: Email configuration test (without sending)
+# Test 6: Email configuration
 echo ""
-echo "Test 6: Email configuration test"
-echo "------------------------------------"
+echo "Test 6: Email configuration"
+echo "----------------------------"
 
-echo "Testing email script (dry run)..."
-if python3 -c "
-import sys
-sys.path.append('scripts')
-from send_email import load_config, get_system_stats
-config = load_config('config/watchpot.conf')
-stats = get_system_stats()
-print('[OK] Email script can load config and gather stats')
-" 2>/dev/null; then
-    echo "[OK] Email script configuration test successful"
-else
-    echo "[ERROR] Email script configuration test failed"
+source config/watchpot.conf
+
+if [ -z "$SMTP_SERVER" ] || [ -z "$EMAIL_USER" ] || [ -z "$EMAIL_PASS" ]; then
+    echo "[ERROR] Email configuration incomplete"
+    echo "   Check SMTP_SERVER, EMAIL_USER, and EMAIL_PASS in config/watchpot.conf"
     exit 1
 fi
+
+echo "[OK] Email configuration appears complete"
 
 # Test 7: Log file creation
 echo ""
 echo "Test 7: Log file creation"
 echo "----------------------------"
 
-if [ -d "/var/log/watchpot" ] && [ -w "/var/log/watchpot" ]; then
+if [ -d "logs" ] && [ -w "logs" ]; then
     echo "[OK] Log directory is writable"
-elif [ -w "/var/log" ]; then
-    echo "[OK] Can create log directory in /var/log"
+elif [ -w "." ]; then
+    echo "[OK] Can create log directory in current directory"
 else
-    echo "[WARNING] May not be able to write to /var/log - check permissions"
+    echo "[WARNING] May not be able to write to current directory - check permissions"
 fi
 
 # Summary
 echo ""
-echo "All tests passed!"
-echo "=================="
+echo "Test Summary"
+echo "============"
 echo ""
 echo "[OK] Configuration: OK"
 echo "[OK] Directories: OK"

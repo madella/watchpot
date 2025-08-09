@@ -50,13 +50,13 @@ echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     log_info "Removing configurations and data..."
     rm -rf /etc/watchpot
-    rm -rf /var/lib/watchpot
-    rm -rf /var/log/watchpot
+    rm -rf photos
+    rm -rf logs
 else
     log_warn "Keeping configurations and data in:"
     echo "  /etc/watchpot/"
-    echo "  /var/lib/watchpot/"
-    echo "  /var/log/watchpot/"
+    echo "  photos/"
+    echo "  logs/"
 fi
 
 log_info "=== Uninstallation completed ==="

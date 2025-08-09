@@ -14,7 +14,7 @@ from pathlib import Path
 
 def setup_logging(log_level='INFO'):
     """Setup logging with proper error handling"""
-    log_dir = Path('/var/log/watchpot')
+    log_dir = Path('logs')
     log_dir.mkdir(parents=True, exist_ok=True)
     
     level = getattr(logging, log_level.upper(), logging.INFO)
@@ -35,7 +35,7 @@ def load_config(config_file):
         'photo_width': '1920',
         'photo_height': '1080',
         'photo_quality': '95',
-        'photos_dir': '/var/lib/watchpot/photos',
+        'photos_dir': 'photos',
         'retention_days': '7',
         'max_retries': '3',
         'retry_delay': '30',

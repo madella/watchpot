@@ -40,9 +40,8 @@ pip3 install --user psutil requests
 
 # Create directories
 echo "Creating directories..."
-sudo mkdir -p /var/lib/watchpot/photos
-sudo mkdir -p /var/log/watchpot
-sudo chown -R $USER:$USER /var/lib/watchpot /var/log/watchpot
+mkdir -p photos
+mkdir -p logs
 
 # Make scripts executable
 echo "Making scripts executable..."
@@ -95,8 +94,8 @@ echo "1. Edit config/watchpot.conf with your email settings"
 echo "2. Test photo capture: ./scripts/capture_photo.py --force"
 echo "3. Test email sending: ./scripts/send_email.py --test"
 echo ""
-echo "Photos will be saved to: /var/lib/watchpot/photos/"
-echo "Logs will be saved to: /var/log/watchpot/"
+echo "Photos will be saved to: ./photos/"
+echo "Logs will be saved to: ./logs/"
 echo ""
 echo "Manual commands:"
 echo "   Photo: ./scripts/capture_photo.py [--force|--cleanup]"

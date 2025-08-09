@@ -23,7 +23,7 @@ from pathlib import Path
 
 def setup_logging(log_level='INFO'):
     """Setup logging"""
-    log_dir = Path('/var/log/watchpot')
+    log_dir = Path('logs')
     log_dir.mkdir(parents=True, exist_ok=True)
     
     level = getattr(logging, log_level.upper(), logging.INFO)
@@ -215,7 +215,7 @@ def send_daily_email(config, logger):
             logger.info(f"Email attempt {attempt + 1}/{max_retries}")
             
             # Get today's photos
-            photos_dir = config.get('photos_dir', '/var/lib/watchpot/photos')
+            photos_dir = config.get('photos_dir', 'photos')
             photo_paths = get_today_photos(photos_dir)
             
             logger.info(f"Found {len(photo_paths)} photos to send")

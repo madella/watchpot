@@ -1,8 +1,9 @@
-# Directory per i log
-/var/log/watchpot/
+# Local directories
+photos/
+logs/
 
-# Directory per le foto
-/var/lib/watchpot/
+# Configuration files (user-specific)
+config/watchpot.conf
 
 # File di configurazione sensibili
 /etc/watchpot/email_config.json

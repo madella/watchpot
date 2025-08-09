@@ -21,7 +21,7 @@ fi
 echo "[OK] Configuration file exists"
 
 # Validate config content
-required_vars=("SMTP_SERVER" "SMTP_PORT" "EMAIL_USER" "EMAIL_PASS" "TO_EMAIL" "FROM_EMAIL")
+required_vars=("SMTP_SERVER" "SMTP_PORT" "RECIPIENTS" "SENDER_PASSWORD" "SENDER_EMAIL")
 for var in "${required_vars[@]}"; do
     if ! grep -q "^$var=" config/watchpot.conf; then
         echo "[ERROR] Missing configuration: $var"
@@ -109,9 +109,9 @@ echo "----------------------------"
 
 source config/watchpot.conf
 
-if [ -z "$SMTP_SERVER" ] || [ -z "$EMAIL_USER" ] || [ -z "$EMAIL_PASS" ]; then
+if [ -z "$SMTP_SERVER" ] || [ -z "$SENDER_EMAIL" ] || [ -z "$SENDER_PASSWORD" ]; then
     echo "[ERROR] Email configuration incomplete"
-    echo "   Check SMTP_SERVER, EMAIL_USER, and EMAIL_PASS in config/watchpot.conf"
+    echo "   Check SMTP_SERVER, SENDER_EMAIL, and SENDER_PASSWORD in config/watchpot.conf"
     exit 1
 fi
 

@@ -322,7 +322,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='WatchPot Email Sender')
-    parser.add_argument('--config', default='config/watchpot.conf', help='Configuration file')
+    parser.add_argument('--config', default='../config/watchpot.conf', help='Configuration file')
     parser.add_argument('--force', action='store_true', help='Force send regardless of schedule')
     parser.add_argument('--test', action='store_true', help='Test mode - send with current photos')
     

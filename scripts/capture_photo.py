@@ -1,136 +1,263 @@
 #!/usr/bin/env python3
 """
-Photo capture script using rpicam-still on Raspberry Pi
+WatchPot Photo Capture Script
+Captures photos at configured times with resilient error handling
 """
 
 import os
+import sys
 import subprocess
 import datetime
 import logging
-import json
+import time
 from pathlib import Path
 
-# Logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('/var/log/watchpot/capture.log'),
-        logging.StreamHandler()
-    ]
-)
-
-logger = logging.getLogger(__name__)
-
-class PhotoCapture:
-    def __init__(self, config_file='/etc/watchpot/config.json'):
-        """Initialize photo capturer with configuration"""
-        self.config = self.load_config(config_file)
-        self.photos_dir = Path(self.config.get('photos_dir', '/var/lib/watchpot/photos'))
-        self.photos_dir.mkdir(parents=True, exist_ok=True)
-        self.error_log_file = '/var/log/watchpot/capture_errors.log'
-        
-    def load_config(self, config_file):
-        """Load configuration from JSON file"""
-        try:
-            with open(config_file, 'r') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            logger.warning(f"Configuration file {config_file} not found, using default configuration")
-            return {
-                'photo_width': 1920,
-                'photo_height': 1080,
-                'photo_quality': 95,
-                'photos_dir': '/var/lib/watchpot/photos',
-                'max_photos_keep': 50,
-                'log_level': 'INFO',
-                'send_error_logs': True
-            }
-        except json.JSONDecodeError as e:
-            logger.error(f"Error parsing configuration file: {e}")
-            raise
+def setup_logging(log_level='INFO'):
+    """Setup logging with proper error handling"""
+    log_dir = Path('/var/log/watchpot')
+    log_dir.mkdir(parents=True, exist_ok=True)
     
-    def log_error_for_email(self, error_msg):
-        """Log error to separate file for email inclusion"""
-        try:
-            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            with open(self.error_log_file, 'a') as f:
-                f.write(f"{timestamp} - CAPTURE ERROR: {error_msg}\n")
-        except Exception as e:
-            logger.error(f"Could not write to error log: {e}")
-    
-    def capture_photo(self):
-        """Capture photo using rpicam-still"""
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"watchpot_{timestamp}.jpg"
-        filepath = self.photos_dir / filename
-        
-        # rpicam-still command
-        cmd = [
-            'rpicam-still',
-            '-o', str(filepath),
-            '--width', str(self.config.get('photo_width', 1920)),
-            '--height', str(self.config.get('photo_height', 1080)),
-            '--quality', str(self.config.get('photo_quality', 95)),
-            '--immediate',  # Immediate capture without preview
-            '--nopreview'   # No preview
+    level = getattr(logging, log_level.upper(), logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_dir / 'capture.log'),
+            logging.StreamHandler()
         ]
-        
-        try:
-            logger.info(f"Capturing photo: {filename}")
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            logger.info(f"Photo captured successfully: {filepath}")
-            
-            # Verify file was created
-            if filepath.exists():
-                size = filepath.stat().st_size
-                logger.info(f"File size: {size} bytes")
-                
-                # Clean up old photos if necessary
-                self.cleanup_old_photos()
-                
-                return str(filepath)
-            else:
-                raise FileNotFoundError(f"File {filepath} was not created")
-                
-        except subprocess.CalledProcessError as e:
-            error_msg = f"Error capturing photo: {e} - STDERR: {e.stderr}"
-            logger.error(error_msg)
-            self.log_error_for_email(error_msg)
-            raise
-        except Exception as e:
-            error_msg = f"Generic error during capture: {e}"
-            logger.error(error_msg)
-            self.log_error_for_email(error_msg)
-            raise
+    )
+    return logging.getLogger(__name__)
+
+def load_config(config_file):
+    """Load configuration with defaults"""
+    config = {
+        'photo_times': '08:00,10:00,12:00,14:00,16:00,18:00',
+        'photo_width': '1920',
+        'photo_height': '1080',
+        'photo_quality': '95',
+        'photos_dir': '/var/lib/watchpot/photos',
+        'retention_days': '7',
+        'max_retries': '3',
+        'retry_delay': '30',
+        'log_level': 'INFO'
+    }
     
-    def cleanup_old_photos(self):
-        """Remove oldest photos keeping only the latest N"""
-        max_photos = self.config.get('max_photos_keep', 50)
+    try:
+        with open(config_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip().lower()
+                    value = value.strip().strip('"\'')
+                    config[key] = value
+    except Exception as e:
+        print(f"Warning: Could not load config file {config_file}: {e}")
+        print("Using default configuration")
+    
+    return config
+
+def check_prerequisites():
+    """Check if camera and required tools are available"""
+    if not subprocess.run(['which', 'rpicam-still'], capture_output=True).returncode == 0:
+        print("Error: rpicam-still not found. Install with: sudo apt install camera-apps")
+        return False
+    return True
+
+def capture_single_photo(config, time_suffix, logger):
+    """Capture a single photo with retry logic"""
+    max_retries = int(config.get('max_retries', '3'))
+    retry_delay = int(config.get('retry_delay', '30'))
+    
+    for attempt in range(max_retries):
+        try:
+            # Create directory structure
+            photos_dir = Path(config['photos_dir'])
+            photos_dir.mkdir(parents=True, exist_ok=True)
+            
+            today = datetime.date.today()
+            daily_dir = photos_dir / f"daily_{today.strftime('%Y%m%d')}"
+            daily_dir.mkdir(exist_ok=True)
+            
+            # Generate filename
+            filename = f"watchpot_{today.strftime('%Y%m%d')}_{time_suffix}.jpg"
+            photo_path = daily_dir / filename
+            
+            # Build capture command
+            cmd = [
+                'rpicam-still',
+                '-o', str(photo_path),
+                '--width', config['photo_width'],
+                '--height', config['photo_height'],
+                '--quality', config['photo_quality'],
+                '--immediate',
+                '--nopreview',
+                '--timeout', '10000'
+            ]
+            
+            logger.info(f"Attempt {attempt + 1}/{max_retries}: Capturing {filename}")
+            
+            # Execute capture with timeout
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                if photo_path.exists() and photo_path.stat().st_size > 1024:
+                    file_size = photo_path.stat().st_size
+                    logger.info(f"Photo captured successfully: {filename} ({file_size} bytes)")
+                    return str(photo_path)
+                else:
+                    logger.warning(f"Photo file is empty or too small: {filename}")
+                    if photo_path.exists():
+                        photo_path.unlink()
+            else:
+                logger.warning(f"rpicam-still failed (attempt {attempt + 1}): {result.stderr}")
+            
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Photo capture timed out (attempt {attempt + 1})")
+        except Exception as e:
+            logger.warning(f"Error during capture attempt {attempt + 1}: {e}")
+            
+        if attempt < max_retries - 1:
+            time.sleep(retry_delay)
+    
+    logger.error(f"Failed to capture photo after {max_retries} attempts")
+    return None
+
+def cleanup_old_photos(config, logger):
+    """Remove old photos based on retention policy"""
+    try:
+        retention_days = int(config.get('retention_days', '7'))
+        photos_dir = Path(config['photos_dir'])
         
-        # Get all photos sorted by modification date
-        photos = list(self.photos_dir.glob('watchpot_*.jpg'))
-        photos.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        if not photos_dir.exists():
+            return
         
-        # Remove oldest photos
-        photos_to_remove = photos[max_photos:]
-        for photo in photos_to_remove:
+        cutoff_date = datetime.date.today() - datetime.timedelta(days=retention_days)
+        
+        for daily_dir in photos_dir.glob("daily_*"):
             try:
-                photo.unlink()
-                logger.info(f"Removed old photo: {photo.name}")
-            except Exception as e:
-                logger.error(f"Error removing photo {photo.name}: {e}")
+                dir_date_str = daily_dir.name.replace('daily_', '')
+                dir_date = datetime.datetime.strptime(dir_date_str, '%Y%m%d').date()
+                
+                if dir_date < cutoff_date:
+                    logger.info(f"Removing old photo directory: {daily_dir}")
+                    import shutil
+                    shutil.rmtree(daily_dir)
+                    
+            except ValueError:
+                continue
+                
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}")
+
+def get_today_photos(config):
+    """Get list of all photos captured today"""
+    today = datetime.date.today()
+    photos_dir = Path(config['photos_dir'])
+    daily_dir = photos_dir / f"daily_{today.strftime('%Y%m%d')}"
+    
+    if not daily_dir.exists():
+        return []
+    
+    photos = list(daily_dir.glob("*.jpg"))
+    photos.sort()
+    return [str(p) for p in photos]
+
+def should_capture_now(config):
+    """Check if we should capture a photo now based on schedule"""
+    photo_times = config.get('photo_times', '').split(',')
+    current_dt = datetime.datetime.now()
+    
+    # Allow 5 minutes window for each scheduled time
+    for scheduled_time in photo_times:
+        scheduled_time = scheduled_time.strip()
+        if not scheduled_time:
+            continue
+            
+        try:
+            hour, minute = map(int, scheduled_time.split(':'))
+            scheduled_dt = current_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            
+            # Check if current time is within 5 minutes of scheduled time
+            time_diff = abs((current_dt - scheduled_dt).total_seconds())
+            if time_diff <= 300:  # 5 minutes
+                return scheduled_time.replace(':', '')
+                
+        except ValueError:
+            continue
+    
+    return None
 
 def main():
-    """Main function"""
-    try:
-        capturer = PhotoCapture()
-        photo_path = capturer.capture_photo()
-        print(photo_path)  # Output for email script
-        return 0
-    except Exception as e:
-        logger.error(f"Fatal error: {e}")
-        return 1
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='WatchPot Photo Capture')
+    parser.add_argument('--config', default='config/watchpot.conf', help='Configuration file')
+    parser.add_argument('--time', help='Specific time suffix for manual capture (HHMM format)')
+    parser.add_argument('--force', action='store_true', help='Force capture regardless of schedule')
+    parser.add_argument('--cleanup', action='store_true', help='Only run cleanup')
+    parser.add_argument('--list', action='store_true', help='List today\'s photos')
+    
+    args = parser.parse_args()
+    
+    # Load configuration
+    config = load_config(args.config)
+    logger = setup_logging(config.get('log_level', 'INFO'))
+    
+    # Handle different modes
+    if args.cleanup:
+        logger.info("Running photo cleanup")
+        cleanup_old_photos(config, logger)
+        return
+    
+    if args.list:
+        photos = get_today_photos(config)
+        if photos:
+            print(f"Photos for today ({len(photos)}):")
+            for photo in photos:
+                print(f"  {photo}")
+        else:
+            print("No photos found for today")
+        return
+    
+    # Check prerequisites
+    if not check_prerequisites():
+        sys.exit(1)
+    
+    # Determine time suffix
+    time_suffix = None
+    
+    if args.time:
+        time_suffix = args.time
+    elif args.force:
+        time_suffix = datetime.datetime.now().strftime('%H%M')
+    else:
+        time_suffix = should_capture_now(config)
+        if not time_suffix:
+            logger.info("Not scheduled to capture photo now")
+            return
+    
+    logger.info(f"Starting photo capture for time: {time_suffix}")
+    
+    # Capture photo
+    photo_path = capture_single_photo(config, time_suffix, logger)
+    
+    if photo_path:
+        logger.info("Photo capture completed successfully")
+        
+        # Run cleanup occasionally
+        if datetime.datetime.now().hour == 1:  # Run cleanup at 1 AM
+            cleanup_old_photos(config, logger)
+        
+        print(f"SUCCESS: {photo_path}")
+        sys.exit(0)
+    else:
+        logger.error("Photo capture failed")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    exit(main())
+    main()

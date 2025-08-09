@@ -1,24 +1,6 @@
-# WatchPot 📸📧
+# WatchPot
 
 Automated photographic monitoring system for Raspberry Pi that captures photos daily and sends them via email with comprehensive system information.
-
-## Features
-
-- ✅ **Daily photo capture** at configurable time (default: 17:00)
-- ✅ **Automatic email sending** with photo attachments
-- ✅ **Systemd services** for automatic management
-- ✅ **Single configuration file** for easy setup
-- ✅ **Error handling** with email notifications when capture fails
-- ✅ **Complete logging** and photo rotation
-- ✅ **Uses existing user** (pi or current user - no new user creation)
-- ✅ **Rich system information in emails:**
-  - 🌐 Public and private IP addresses
-  - 🌡️ CPU temperature monitoring
-  - 📊 System health metrics (CPU, memory, disk usage)
-  - ⏱️ Uptime and boot time
-  - 🔌 Network interface details
-  - 💻 Platform and hostname information
-  - 📋 Recent error logs (when enabled)
 
 ## Requirements
 
@@ -29,12 +11,12 @@ Automated photographic monitoring system for Raspberry Pi that captures photos d
 ### Software
 - Raspberry Pi OS (Bullseye or later)
 - Python 3.7+
-- `rpicam-still` (included in camera-apps)
+- `rpicam-still`
 - Python packages: `psutil`, `requests`
 
 ```bash
 sudo apt update
-sudo apt install camera-apps python3 python3-pip python3-psutil python3-requests
+sudo apt install python3 python3-pip python3-psutil python3-requests
 ```
 
 ## Installation
@@ -51,37 +33,12 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-### 3. Configure email
-```bash
-# Copy configuration template
-sudo cp /etc/watchpot/email_config.json.example /etc/watchpot/email_config.json
-
-# Edit configuration
-sudo nano /etc/watchpot/email_config.json
-```
-
-#### Gmail Configuration
+### 3. Email Configuration
 To use Gmail, you must:
 1. Enable 2-factor authentication
 2. Generate a specific "App Password"
 3. Use the App Password in the configuration file
 
-Example Gmail configuration:
-```json
-{
-    "smtp_server": "smtp.gmail.com",
-    "smtp_port": 587,
-    "use_tls": true,
-    "sender_email": "your-email@gmail.com",
-    "sender_password": "your-app-password",
-    "recipients": [
-        "recipient1@example.com",
-        "recipient2@example.com"
-    ],
-    "subject_template": "🔍 WatchPot Alert - {timestamp}",
-    "body_template": "Hello!\\n\\nWatchPot has captured a new image at {timestamp}.\\n\\nPlease see the attachment for details and system information below.\\n\\nBest regards,\\nYour WatchPot System"
-}
-```
 
 ### 4. Enable and start the service
 ```bash
@@ -142,23 +99,23 @@ sudo systemctl restart watchpot.timer
 
 Each email includes comprehensive system information:
 
-### 🌐 Network Information
+### Network Information
 - **Public IP**: Your external IP address (detected via api.ipify.org)
 - **Private IP**: Local network IP address
 
-### 🌡️ System Health
+### System Health
 - **CPU Temperature**: Real-time Raspberry Pi temperature
 - **CPU Usage**: Current CPU utilization percentage
 - **Memory Usage**: RAM usage percentage  
 - **Disk Usage**: Storage usage percentage
 
-### 💻 System Details
+### System Details
 - **Hostname**: System hostname
 - **Platform**: Operating system details
 - **Boot Time**: When the system was last started
 - **Uptime**: How long the system has been running
 
-### 🔌 Network Interfaces
+### Network Interfaces
 - List of all network interfaces with their IP addresses
 
 ## Usage
@@ -329,23 +286,23 @@ Your WatchPot System
            SYSTEM INFORMATION
 ═══════════════════════════════════════
 
-🌐 Network Information:
+Network Information:
    • Public IP:  203.0.113.45
    • Private IP: 192.168.1.100
 
-🌡️  System Health:
+System Health:
    • CPU Temperature: 42.3°C
    • CPU Usage:       15.2%
    • Memory Usage:    34.7%
    • Disk Usage:      28.9%
 
-💻 System Details:
+System Details:
    • Hostname:   raspberrypi
    • Platform:   Linux-6.1.21-v8+-aarch64-with-glibc2.31
    • Boot Time:  2025-07-16 08:15:30
    • Uptime:     6:14:52
 
-🔌 Network Interfaces:
+Network Interfaces:
    • eth0: 192.168.1.100
    • wlan0: 192.168.1.101
    • lo: 127.0.0.1
@@ -363,4 +320,4 @@ Contributions are welcome! Open an issue or submit a pull request.
 
 ---
 
-**Developed with ❤️ for Raspberry Pi**
+**Developed for Raspberry Pi**

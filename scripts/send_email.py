@@ -1,384 +1,356 @@
 #!/usr/bin/env python3
 """
-Email sending script with attachments and system information
-Uses standard library smtplib and email modules
+WatchPot Email Sender Script
+Sends daily email with all photos and system stats
 """
 
 import os
-import smtplib
-import json
-import logging
 import sys
-import subprocess
+import smtplib
+import logging
+import mimetypes
 import socket
 import requests
+import datetime
+import platform
+import psutil
+import subprocess
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from pathlib import Path
-import datetime
-import platform
-import psutil
 
-# Logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('/var/log/watchpot/email.log'),
-        logging.StreamHandler()
-    ]
-)
-
-logger = logging.getLogger(__name__)
-
-class SystemInfo:
-    """Collect system information for email reports"""
+def setup_logging(log_level='INFO'):
+    """Setup logging"""
+    log_dir = Path('/var/log/watchpot')
+    log_dir.mkdir(parents=True, exist_ok=True)
     
-    @staticmethod
-    def get_public_ip():
-        """Get public IP address"""
+    level = getattr(logging, log_level.upper(), logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_dir / 'email.log'),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(__name__)
+
+def load_config(config_file):
+    """Load configuration"""
+    config = {}
+    try:
+        with open(config_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip().lower()
+                    value = value.strip().strip('"\'')
+                    config[key] = value
+        return config
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        sys.exit(1)
+
+def get_system_stats():
+    """Get comprehensive system information with retry logic"""
+    stats = {
+        'hostname': socket.gethostname(),
+        'platform': platform.platform(),
+        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    
+    # Network info with retry
+    for attempt in range(3):
         try:
             response = requests.get('https://api.ipify.org', timeout=10)
-            return response.text.strip()
-        except Exception as e:
-            logger.warning(f"Could not get public IP: {e}")
-            return "Unknown"
-    
-    @staticmethod
-    def get_private_ip():
-        """Get private IP address"""
-        try:
-            # Connect to a remote address to determine local IP
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception as e:
-            logger.warning(f"Could not get private IP: {e}")
-            return "Unknown"
-    
-    @staticmethod
-    def get_cpu_temperature():
-        """Get CPU temperature for Raspberry Pi"""
-        try:
-            # Try Raspberry Pi specific method
-            with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
-                temp = int(f.read()) / 1000.0
-                return f"{temp:.1f}°C"
-        except Exception:
-            try:
-                # Alternative method using vcgencmd
-                result = subprocess.run(['vcgencmd', 'measure_temp'], 
-                                      capture_output=True, text=True)
-                if result.returncode == 0:
-                    temp_str = result.stdout.strip()
-                    return temp_str.replace('temp=', '')
-            except Exception:
-                pass
-            
-            # Fallback for other systems
-            try:
-                if hasattr(psutil, 'sensors_temperatures'):
-                    temps = psutil.sensors_temperatures()
-                    if temps:
-                        for name, entries in temps.items():
-                            if entries:
-                                return f"{entries[0].current:.1f}°C"
-            except Exception:
-                pass
-            
-            return "Unknown"
-    
-    @staticmethod
-    def get_system_stats():
-        """Get comprehensive system statistics"""
-        try:
-            stats = {
-                'hostname': socket.gethostname(),
-                'platform': platform.platform(),
-                'cpu_percent': psutil.cpu_percent(interval=1),
-                'memory_percent': psutil.virtual_memory().percent,
-                'disk_usage': psutil.disk_usage('/').percent,
-                'boot_time': datetime.datetime.fromtimestamp(psutil.boot_time()).strftime('%Y-%m-%d %H:%M:%S'),
-                'uptime': str(datetime.datetime.now() - datetime.datetime.fromtimestamp(psutil.boot_time())).split('.')[0]
-            }
-            return stats
-        except Exception as e:
-            logger.warning(f"Could not get system stats: {e}")
-            return {}
-    
-    @staticmethod
-    def get_network_info():
-        """Get network interface information"""
-        try:
-            interfaces = []
-            for interface, addrs in psutil.net_if_addrs().items():
-                for addr in addrs:
-                    if addr.family == socket.AF_INET:
-                        interfaces.append(f"{interface}: {addr.address}")
-            return interfaces
-        except Exception as e:
-            logger.warning(f"Could not get network info: {e}")
-            return []
-
-class EmailSender:
-    def __init__(self, config_file='/etc/watchpot/email_config.json'):
-        """Initialize email sender with configuration"""
-        self.config = self.load_config(config_file)
-        
-    def load_config(self, config_file):
-        """Load email configuration from JSON file"""
-        try:
-            with open(config_file, 'r') as f:
-                config = json.load(f)
-                
-            # Verify required fields
-            required_fields = ['smtp_server', 'smtp_port', 'sender_email', 'sender_password', 'recipients']
-            missing_fields = [field for field in required_fields if field not in config]
-            
-            if missing_fields:
-                raise ValueError(f"Missing configuration fields: {missing_fields}")
-                
-            return config
-            
-        except FileNotFoundError:
-            logger.error(f"Email configuration file {config_file} not found")
-            raise
-        except json.JSONDecodeError as e:
-            logger.error(f"Error parsing email configuration file: {e}")
-            raise
-    
-    def format_system_info(self, system_info, network_interfaces):
-        """Format system information for email body"""
-        public_ip = SystemInfo.get_public_ip()
-        private_ip = SystemInfo.get_private_ip()
-        temperature = SystemInfo.get_cpu_temperature()
-        
-        info_text = f"""
-═══════════════════════════════════════
-           SYSTEM INFORMATION
-═══════════════════════════════════════
-
-🌐 Network Information:
-   • Public IP:  {public_ip}
-   • Private IP: {private_ip}
-
-🌡️  System Health:
-   • CPU Temperature: {temperature}
-   • CPU Usage:       {system_info.get('cpu_percent', 'Unknown')}%
-   • Memory Usage:    {system_info.get('memory_percent', 'Unknown')}%
-   • Disk Usage:      {system_info.get('disk_usage', 'Unknown')}%
-
-💻 System Details:
-   • Hostname:   {system_info.get('hostname', 'Unknown')}
-   • Platform:   {system_info.get('platform', 'Unknown')}
-   • Boot Time:  {system_info.get('boot_time', 'Unknown')}
-   • Uptime:     {system_info.get('uptime', 'Unknown')}
-
-🔌 Network Interfaces:"""
-        
-        for interface in network_interfaces:
-            info_text += f"\n   • {interface}"
-        
-        info_text += "\n\n═══════════════════════════════════════"
-        
-        return info_text
-    
-    def get_error_logs(self):
-        """Get recent error logs for inclusion in email"""
-        error_logs = []
-        log_files = [
-            '/var/log/watchpot/capture_errors.log',
-            '/var/log/watchpot/email.log',
-            '/var/log/watchpot/watchpot.log'
-        ]
-        
-        for log_file in log_files:
-            try:
-                if os.path.exists(log_file):
-                    # Get last 20 lines of each log file
-                    with open(log_file, 'r') as f:
-                        lines = f.readlines()
-                        recent_lines = lines[-20:] if len(lines) > 20 else lines
-                        if recent_lines:
-                            error_logs.append(f"\n--- {os.path.basename(log_file)} (last {len(recent_lines)} lines) ---")
-                            error_logs.extend([line.rstrip() for line in recent_lines])
-            except Exception as e:
-                error_logs.append(f"Could not read {log_file}: {e}")
-        
-        return '\n'.join(error_logs) if error_logs else "No recent error logs found."
-    
-    def send_error_email(self, error_message):
-        """Send email with error information when photo capture fails"""
-        try:
-            # Collect system information
-            logger.info("Collecting system information for error email...")
-            system_info = SystemInfo.get_system_stats()
-            network_interfaces = SystemInfo.get_network_info()
-            
-            # Create email message
-            msg = MIMEMultipart()
-            msg['From'] = self.config['sender_email']
-            msg['To'] = ', '.join(self.config['recipients'])
-            
-            # Dynamic subject with timestamp and error indication
-            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            subject = f"❌ WatchPot ERROR - {timestamp}"
-            msg['Subject'] = subject
-            
-            # Error message body
-            error_body = f"""❌ WatchPot Error Report - {timestamp}
-
-PHOTO CAPTURE FAILED!
-
-Error Details:
-{error_message}
-
-System information and recent logs are included below for troubleshooting.
-"""
-            
-            # Format system information
-            system_info_text = self.format_system_info(system_info, network_interfaces)
-            
-            # Always include error logs for error emails
-            error_logs = self.get_error_logs()
-            error_logs_text = f"\n\n═══════════════════════════════════════\n           RECENT ERROR LOGS\n═══════════════════════════════════════\n{error_logs}\n═══════════════════════════════════════"
-            
-            # Combine all information
-            body = error_body + "\n" + system_info_text + error_logs_text
-            
-            msg.attach(MIMEText(body, 'plain'))
-            
-            # Send email
-            logger.info(f"Connecting to {self.config['smtp_server']}:{self.config['smtp_port']}")
-            
-            with smtplib.SMTP(self.config['smtp_server'], self.config['smtp_port']) as server:
-                # Enable TLS if configured
-                if self.config.get('use_tls', True):
-                    server.starttls()
-                
-                # Login
-                server.login(self.config['sender_email'], self.config['sender_password'])
-                
-                # Send to all recipients
-                for recipient in self.config['recipients']:
-                    server.send_message(msg, to_addrs=[recipient])
-                    logger.info(f"Error email sent successfully to: {recipient}")
-            
-            logger.info(f"Error email sent to {len(self.config['recipients'])} recipients")
-            
-        except Exception as e:
-            logger.error(f"Error sending error email: {e}")
-            raise
-
-    def send_photo_email(self, photo_path):
-        """Send email with photo attachment and system information"""
-        try:
-            # Verify photo file exists
-            if not os.path.exists(photo_path):
-                raise FileNotFoundError(f"Photo file not found: {photo_path}")
-            
-            # Collect system information
-            logger.info("Collecting system information...")
-            system_info = SystemInfo.get_system_stats()
-            network_interfaces = SystemInfo.get_network_info()
-            
-            # Create email message
-            msg = MIMEMultipart()
-            msg['From'] = self.config['sender_email']
-            msg['To'] = ', '.join(self.config['recipients'])
-            
-            # Dynamic subject with timestamp
-            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            subject = self.config.get('subject_template', 'WatchPot Alert - {timestamp}')
-            msg['Subject'] = subject.format(timestamp=timestamp)
-            
-            # Message body with system information
-            body_template = self.config.get('body_template', 
-                'New photo captured by WatchPot on {timestamp}.\n\nSee attachment for details.')
-            
-            # Format system information
-            system_info_text = self.format_system_info(system_info, network_interfaces)
-            
-            # Check if we should include error logs
-            error_logs_text = ""
-            if self.config.get('send_error_logs', True):
-                error_logs = self.get_error_logs()
-                if error_logs and error_logs != "No recent error logs found.":
-                    error_logs_text = f"\n\n═══════════════════════════════════════\n           RECENT ERROR LOGS\n═══════════════════════════════════════\n{error_logs}\n═══════════════════════════════════════"
-            
-            # Combine user template with system info and error logs
-            body = body_template.format(timestamp=timestamp) + "\n" + system_info_text + error_logs_text
-            
-            msg.attach(MIMEText(body, 'plain'))
-            
-            # Attach photo
-            with open(photo_path, 'rb') as f:
-                img_data = f.read()
-                
-            image = MIMEImage(img_data)
-            image.add_header('Content-Disposition', 
-                           f'attachment; filename="{os.path.basename(photo_path)}"')
-            msg.attach(image)
-            
-            # Send email
-            logger.info(f"Connecting to {self.config['smtp_server']}:{self.config['smtp_port']}")
-            
-            with smtplib.SMTP(self.config['smtp_server'], self.config['smtp_port']) as server:
-                # Enable TLS if configured
-                if self.config.get('use_tls', True):
-                    server.starttls()
-                
-                # Login
-                server.login(self.config['sender_email'], self.config['sender_password'])
-                
-                # Send to all recipients
-                for recipient in self.config['recipients']:
-                    server.send_message(msg, to_addrs=[recipient])
-                    logger.info(f"Email sent successfully to: {recipient}")
-            
-            logger.info(f"Email with photo {photo_path} sent to {len(self.config['recipients'])} recipients")
-            
-        except Exception as e:
-            logger.error(f"Error sending email: {e}")
-            raise
-
-def main():
-    """Main function"""
-    # Check if this is an error email (no photo path provided)
-    if len(sys.argv) == 1:
-        logger.error("Usage: send_email.py <photo_path> OR send_email.py --error '<error_message>'")
-        return 1
-    
-    # Handle error email
-    if len(sys.argv) == 3 and sys.argv[1] == "--error":
-        error_message = sys.argv[2]
-        try:
-            sender = EmailSender()
-            sender.send_error_email(error_message)
-            logger.info("Error email sending process completed successfully")
-            return 0
-        except Exception as e:
-            logger.error(f"Fatal error sending error email: {e}")
-            return 1
-    
-    # Handle normal photo email
-    if len(sys.argv) != 2:
-        logger.error("Usage: send_email.py <photo_path> OR send_email.py --error '<error_message>'")
-        return 1
-    
-    photo_path = sys.argv[1]
+            stats['public_ip'] = response.text.strip()
+            break
+        except:
+            if attempt == 2:
+                stats['public_ip'] = 'Unknown'
+            time.sleep(5)
     
     try:
-        sender = EmailSender()
-        sender.send_photo_email(photo_path)
-        logger.info("Email sending process completed successfully")
-        return 0
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        stats['private_ip'] = s.getsockname()[0]
+        s.close()
+    except:
+        stats['private_ip'] = 'Unknown'
+    
+    # System health
+    try:
+        stats['cpu_percent'] = f"{psutil.cpu_percent(interval=1):.1f}%"
+        stats['memory_percent'] = f"{psutil.virtual_memory().percent:.1f}%"
+        stats['disk_percent'] = f"{psutil.disk_usage('/').percent:.1f}%"
+        
+        boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
+        uptime = datetime.datetime.now() - boot_time
+        stats['boot_time'] = boot_time.strftime('%Y-%m-%d %H:%M:%S')
+        stats['uptime'] = str(uptime).split('.')[0]
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
-        return 1
+        stats['cpu_percent'] = 'Unknown'
+        stats['memory_percent'] = 'Unknown'
+        stats['disk_percent'] = 'Unknown'
+        stats['boot_time'] = 'Unknown'
+        stats['uptime'] = 'Unknown'
+    
+    # CPU temperature (Raspberry Pi)
+    try:
+        with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
+            temp = int(f.read()) / 1000.0
+            stats['cpu_temperature'] = f"{temp:.1f}°C"
+    except:
+        try:
+            result = subprocess.run(['vcgencmd', 'measure_temp'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                stats['cpu_temperature'] = result.stdout.strip().replace('temp=', '')
+            else:
+                stats['cpu_temperature'] = 'Unknown'
+        except:
+            stats['cpu_temperature'] = 'Unknown'
+    
+    # Network interfaces
+    try:
+        interfaces = []
+        for interface, addrs in psutil.net_if_addrs().items():
+            for addr in addrs:
+                if addr.family == socket.AF_INET and addr.address != '127.0.0.1':
+                    interfaces.append(f"{interface}: {addr.address}")
+        stats['network_interfaces'] = interfaces
+    except:
+        stats['network_interfaces'] = []
+    
+    return stats
+
+def get_today_photos(photos_dir):
+    """Get all photos from today"""
+    today = datetime.date.today()
+    daily_dir = Path(photos_dir) / f"daily_{today.strftime('%Y%m%d')}"
+    
+    if not daily_dir.exists():
+        return []
+    
+    photos = list(daily_dir.glob("*.jpg"))
+    photos.sort()
+    return [str(p) for p in photos]
+
+def create_system_info_text(stats):
+    """Create formatted system information"""
+    info = "\n═══════════════════════════════════════\n"
+    info += "           SYSTEM INFORMATION\n"
+    info += "═══════════════════════════════════════\n\n"
+    
+    info += "Network Information:\n"
+    info += f"   - Public IP:  {stats.get('public_ip', 'Unknown')}\n"
+    info += f"   - Private IP: {stats.get('private_ip', 'Unknown')}\n\n"
+    
+    info += "System Health:\n"
+    info += f"   - CPU Temperature: {stats.get('cpu_temperature', 'Unknown')}\n"
+    info += f"   - CPU Usage:       {stats.get('cpu_percent', 'Unknown')}\n"
+    info += f"   - Memory Usage:    {stats.get('memory_percent', 'Unknown')}\n"
+    info += f"   - Disk Usage:      {stats.get('disk_percent', 'Unknown')}\n\n"
+    
+    info += "System Details:\n"
+    info += f"   - Hostname:   {stats.get('hostname', 'Unknown')}\n"
+    info += f"   - Platform:   {stats.get('platform', 'Unknown')}\n"
+    info += f"   - Boot Time:  {stats.get('boot_time', 'Unknown')}\n"
+    info += f"   - Uptime:     {stats.get('uptime', 'Unknown')}\n\n"
+    
+    if stats.get('network_interfaces'):
+        info += "Network Interfaces:\n"
+        for interface in stats['network_interfaces']:
+            info += f"   - {interface}\n"
+        info += "\n"
+    
+    info += "═══════════════════════════════════════\n"
+    return info
+
+def attach_photo(msg, photo_path, logger):
+    """Attach a photo to email with error handling"""
+    try:
+        if not os.path.exists(photo_path):
+            logger.warning(f"Photo not found: {photo_path}")
+            return False
+        
+        file_size = os.path.getsize(photo_path)
+        if file_size == 0:
+            logger.warning(f"Photo is empty: {photo_path}")
+            return False
+        
+        # Determine MIME type
+        mime_type, _ = mimetypes.guess_type(photo_path)
+        if mime_type is None or not mime_type.startswith('image/'):
+            mime_type = 'image/jpeg'
+        
+        main_type, sub_type = mime_type.split('/', 1)
+        
+        # Read and attach
+        with open(photo_path, 'rb') as f:
+            img_data = f.read()
+        
+        image = MIMEImage(img_data, _subtype=sub_type)
+        filename = os.path.basename(photo_path)
+        image.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+        
+        msg.attach(image)
+        logger.info(f"Attached: {filename} ({file_size} bytes)")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error attaching {photo_path}: {e}")
+        return False
+
+def send_daily_email(config, logger):
+    """Send email with retry logic"""
+    max_retries = int(config.get('max_retries', '3'))
+    retry_delay = int(config.get('retry_delay', '30'))
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Email attempt {attempt + 1}/{max_retries}")
+            
+            # Get today's photos
+            photos_dir = config.get('photos_dir', '/var/lib/watchpot/photos')
+            photo_paths = get_today_photos(photos_dir)
+            
+            logger.info(f"Found {len(photo_paths)} photos to send")
+            
+            # Get system stats
+            stats = get_system_stats()
+            
+            # Create email
+            msg = MIMEMultipart('mixed')
+            msg['From'] = config['sender_email']
+            msg['To'] = config['recipients']
+            
+            # Subject
+            timestamp = stats['timestamp']
+            today_date = datetime.date.today().strftime('%Y-%m-%d')
+            subject = config.get('email_subject', 'WatchPot Daily Report - {date}')
+            subject = subject.format(date=today_date, timestamp=timestamp)
+            msg['Subject'] = subject
+            
+            # Body
+            if photo_paths:
+                capture_times = []
+                for photo_path in photo_paths:
+                    filename = os.path.basename(photo_path)
+                    try:
+                        # Extract time from filename like watchpot_20250809_0800.jpg
+                        parts = filename.replace('.jpg', '').split('_')
+                        if len(parts) >= 3:
+                            time_str = parts[2]
+                            if len(time_str) == 4:  # HHMM
+                                formatted_time = f"{time_str[:2]}:{time_str[2:]}"
+                                capture_times.append(formatted_time)
+                    except:
+                        pass
+                
+                body_template = config.get('email_body', 
+                    'Hello! WatchPot captured {count} photos today at {times}. System info below.')
+                body = body_template.format(
+                    count=len(photo_paths),
+                    times=', '.join(capture_times) if capture_times else 'various times'
+                )
+            else:
+                body = "Hello!\n\nNo photos were captured today. Please check the system.\n\nSystem information below."
+                logger.warning("No photos found for today")
+            
+            # Add system info
+            body += create_system_info_text(stats)
+            
+            # Attach body
+            text_part = MIMEText(body, 'plain', 'utf-8')
+            msg.attach(text_part)
+            
+            # Attach photos
+            attached_count = 0
+            for photo_path in photo_paths:
+                if attach_photo(msg, photo_path, logger):
+                    attached_count += 1
+            
+            logger.info(f"Attached {attached_count} photos")
+            
+            # Send email
+            smtp_server = config.get('smtp_server', 'smtp.gmail.com')
+            smtp_port = int(config.get('smtp_port', '587'))
+            use_tls = config.get('use_tls', 'true').lower() == 'true'
+            
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
+                if use_tls:
+                    server.starttls()
+                
+                server.login(config['sender_email'], config['sender_password'])
+                
+                recipients = [r.strip() for r in config['recipients'].split(',')]
+                server.send_message(msg, to_addrs=recipients)
+                
+                logger.info(f"Email sent successfully to {len(recipients)} recipients")
+                return True
+                
+        except Exception as e:
+            logger.warning(f"Email attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+    
+    logger.error(f"Failed to send email after {max_retries} attempts")
+    return False
+
+def should_send_now(config):
+    """Check if we should send email now based on schedule"""
+    email_time = config.get('email_time', '19:00').strip()
+    current_dt = datetime.datetime.now()
+    
+    try:
+        hour, minute = map(int, email_time.split(':'))
+        scheduled_dt = current_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        
+        # Check if current time is within 10 minutes of scheduled time
+        time_diff = abs((current_dt - scheduled_dt).total_seconds())
+        return time_diff <= 600  # 10 minutes window
+        
+    except ValueError:
+        return False
+
+def main():
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='WatchPot Email Sender')
+    parser.add_argument('--config', default='config/watchpot.conf', help='Configuration file')
+    parser.add_argument('--force', action='store_true', help='Force send regardless of schedule')
+    parser.add_argument('--test', action='store_true', help='Test mode - send with current photos')
+    
+    args = parser.parse_args()
+    
+    # Load configuration
+    config = load_config(args.config)
+    logger = setup_logging(config.get('log_level', 'INFO'))
+    
+    # Check if we should send
+    if not args.force and not args.test:
+        if not should_send_now(config):
+            logger.info("Not scheduled to send email now")
+            return
+    
+    logger.info("Starting email sending process")
+    
+    # Send email
+    success = send_daily_email(config, logger)
+    
+    if success:
+        logger.info("Email sent successfully")
+        print("SUCCESS: Daily email sent")
+        sys.exit(0)
+    else:
+        logger.error("Email sending failed")
+        print("ERROR: Email sending failed")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    exit(main())
+    main()

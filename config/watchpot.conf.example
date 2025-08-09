@@ -1,114 +1,32 @@
-# =============================================================================
-# WatchPot Configuration File
-# =============================================================================
-# This single file contains ALL settings for WatchPot.
-# Edit the values below and run: sudo ./install.sh
-#
-# IMPORTANT: Configure at least the email settings before installation!
-# =============================================================================
+# WatchPot Configuration
+# Edit these values according to your setup
 
-# =============================================================================
-# SCHEDULE SETTINGS
-# =============================================================================
-# When to take the daily photo (24-hour format: HH:MM)
-# Examples: 
-#   09:00  = 9:00 AM
-#   17:30  = 5:30 PM  
-#   23:15  = 11:15 PM
-DAILY_TIME=17:00
+# PHOTO SCHEDULE - Times to capture photos (comma-separated HH:MM format)
+PHOTO_TIMES=08:00,10:00,12:00,14:00,16:00,18:00
 
-# =============================================================================
-# PHOTO SETTINGS  
-# =============================================================================
-# Photo dimensions (width x height in pixels)
-# Common resolutions:
-#   1920x1080 = Full HD
-#   1280x720  = HD
-#   3280x2464 = Pi Camera V2 max
+# EMAIL SCHEDULE - When to send daily email with all photos
+EMAIL_TIME=19:00
+
+# PHOTO SETTINGS
 PHOTO_WIDTH=1920
 PHOTO_HEIGHT=1080
-
-# JPEG quality (1-100, higher = better quality but larger files)
-# Recommended: 85-95 for good quality/size balance
 PHOTO_QUALITY=95
+PHOTOS_DIR=/var/lib/watchpot/photos
+RETENTION_DAYS=7
 
-# Number of photos to keep (older photos are automatically deleted)
-# Set to 0 to keep all photos (not recommended)
-MAX_PHOTOS_KEEP=100
-
-# =============================================================================
-# EMAIL SETTINGS - CONFIGURE THESE!
-# =============================================================================
-# SMTP server settings (examples below for popular providers)
+# EMAIL SETTINGS (REQUIRED - Replace with your details)
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
 USE_TLS=true
-
-# Your email credentials
-# GMAIL USERS: Use an "App Password", not your regular password!
-# Generate one at: https://myaccount.google.com/apppasswords
 SENDER_EMAIL=your-email@gmail.com
 SENDER_PASSWORD=your-app-password
-
-# Who should receive the photos (separate multiple emails with commas)
-# Examples:
-#   Single:   john@example.com
-#   Multiple: john@example.com,mary@example.com,security@company.com
 RECIPIENTS=recipient1@example.com,recipient2@example.com
 
-# Email templates (you can customize these)
-# {timestamp} will be replaced with the actual date/time
-EMAIL_SUBJECT=🔍 WatchPot Alert - {timestamp}
-EMAIL_BODY=Hello!\n\nWatchPot has captured a new image at {timestamp}.\n\nPlease see the attachment for details and system information below.\n\nBest regards,\nYour WatchPot System
+# EMAIL TEMPLATE
+EMAIL_SUBJECT=🔍 WatchPot Daily Report - {date}
+EMAIL_BODY=Hello! WatchPot captured {count} photos today at {times}. System info below.
 
-# =============================================================================
-# POPULAR EMAIL PROVIDER SETTINGS
-# =============================================================================
-# Uncomment and modify the section for your email provider:
-
-# GMAIL (default above)
-# SMTP_SERVER=smtp.gmail.com
-# SMTP_PORT=587
-# USE_TLS=true
-
-# OUTLOOK/HOTMAIL  
-# SMTP_SERVER=smtp-mail.outlook.com
-# SMTP_PORT=587
-# USE_TLS=true
-
-# YAHOO MAIL
-# SMTP_SERVER=smtp.mail.yahoo.com  
-# SMTP_PORT=587
-# USE_TLS=true
-
-# CUSTOM SMTP (replace with your provider's settings)
-# SMTP_SERVER=mail.yourprovider.com
-# SMTP_PORT=587
-# USE_TLS=true
-
-# =============================================================================
-# ADVANCED SYSTEM SETTINGS
-# =============================================================================
-# User to run the service (leave empty for auto-detection: pi or current user)
-# Only change this if you know what you're doing!
-WATCHPOT_USER=
-
-# Logging level (DEBUG, INFO, WARNING, ERROR)
-# INFO is recommended for normal use
+# SYSTEM SETTINGS
 LOG_LEVEL=INFO
-
-# Include error logs in emails when capture fails (true/false)
-# Recommended: true (helps with troubleshooting)
-SEND_ERROR_LOGS=true
-
-# =============================================================================
-# INSTALLATION NOTES
-# =============================================================================
-# 1. Edit the email settings above (SENDER_EMAIL, SENDER_PASSWORD, RECIPIENTS)
-# 2. Optionally change DAILY_TIME and photo settings
-# 3. Save this file
-# 4. Run: sudo ./install.sh
-# 5. Enable: sudo systemctl enable watchpot.timer && sudo systemctl start watchpot.timer
-#
-# To test your config before installing: ./test_config.sh
-# =============================================================================
+MAX_RETRIES=3
+RETRY_DELAY=30

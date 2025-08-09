@@ -23,8 +23,8 @@ SENDER_PASSWORD=your-app-password
 RECIPIENTS=recipient1@example.com,recipient2@example.com
 
 # EMAIL TEMPLATE
-EMAIL_SUBJECT=🔍 WatchPot Daily Report - {date}
-EMAIL_BODY=Hello! WatchPot captured {count} photos today at {times}. System info below.
+EMAIL_SUBJECT='WatchPot Daily Report - {date}'
+EMAIL_BODY='Hello! WatchPot captured {count} photos today at {times}. System info below.'
 
 # SYSTEM SETTINGS
 LOG_LEVEL=INFO

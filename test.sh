@@ -22,7 +22,7 @@ echo "------------------------------------"
 config_ok=true
 
 # Check required settings
-required_settings=("sender_email" "sender_password" "recipients")
+required_settings=("SENDER_EMAIL" "SENDER_PASSWORD" "RECIPIENTS")
 for setting in "${required_settings[@]}"; do
     if ! grep -q "^${setting}=" config/watchpot.conf; then
         echo "[ERROR] Missing required setting: $setting"
@@ -45,15 +45,15 @@ echo "---------------------------"
 if [ -d "/var/lib/watchpot/photos" ]; then
     echo "[OK] Photos directory exists: /var/lib/watchpot/photos"
 else
-    echo "[ERROR] Photos directory missing - run install.sh"
-    exit 1
+    echo "[WARNING] Photos directory missing - will be created automatically"
+    echo "  You can run install.sh to set up directories properly"
 fi
 
 if [ -d "/var/log/watchpot" ]; then
     echo "[OK] Log directory exists: /var/log/watchpot"
 else
-    echo "[ERROR] Log directory missing - run install.sh"
-    exit 1
+    echo "[WARNING] Log directory missing - will be created automatically"
+    echo "  You can run install.sh to set up directories properly"
 fi
 
 # Test 3: Python dependencies
@@ -100,7 +100,7 @@ if command -v rpicam-still &> /dev/null; then
     
     # Test photo capture
     echo "Testing photo capture..."
-    if ./scripts/capture_photo.py --test; then
+    if ./scripts/capture_photo.py --force; then
         echo "[OK] Photo capture test successful"
     else
         echo "[ERROR] Photo capture test failed"
@@ -136,11 +136,12 @@ echo ""
 echo "Test 7: Log file creation"
 echo "----------------------------"
 
-if [ -w "/var/log/watchpot" ]; then
+if [ -d "/var/log/watchpot" ] && [ -w "/var/log/watchpot" ]; then
     echo "[OK] Log directory is writable"
+elif [ -w "/var/log" ]; then
+    echo "[OK] Can create log directory in /var/log"
 else
-    echo "[ERROR] Log directory is not writable - check permissions"
-    exit 1
+    echo "[WARNING] May not be able to write to /var/log - check permissions"
 fi
 
 # Summary

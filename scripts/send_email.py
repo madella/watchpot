@@ -163,7 +163,7 @@ def create_system_info_text(stats):
     
     if stats.get('network_interfaces'):
         info += "Network Interfaces:\n"
-        for interface in stats['network_interfaces']:
+        for interface in stats.get('network_interfaces', []):
             info += f"   - {interface}\n"
         info += "\n"
     
@@ -232,7 +232,11 @@ def send_daily_email(config, logger):
             timestamp = stats.get('timestamp', datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             today_date = datetime.date.today().strftime('%Y-%m-%d')
             subject = config.get('email_subject', 'WatchPot Daily Report - {date}')
-            subject = subject.format(date=today_date, timestamp=timestamp)
+            try:
+                subject = subject.format(date=today_date, timestamp=timestamp)
+            except KeyError as e:
+                logger.warning(f"Template formatting error in subject: {e}")
+                subject = f"WatchPot Daily Report - {today_date}"
             msg['Subject'] = subject
             
             # Body
@@ -253,10 +257,16 @@ def send_daily_email(config, logger):
                 
                 body_template = config.get('email_body', 
                     'Hello! WatchPot captured {count} photos today at {times}. System info below.')
-                body = body_template.format(
-                    count=len(photo_paths),
-                    times=', '.join(capture_times) if capture_times else 'various times'
-                )
+                try:
+                    body = body_template.format(
+                        count=len(photo_paths),
+                        times=', '.join(capture_times) if capture_times else 'various times',
+                        timestamp=timestamp,
+                        date=today_date
+                    )
+                except KeyError as e:
+                    logger.warning(f"Template formatting error in body: {e}")
+                    body = f"Hello! WatchPot captured {len(photo_paths)} photos today. System info below."
             else:
                 body = "Hello!\n\nNo photos were captured today. Please check the system.\n\nSystem information below."
                 logger.warning("No photos found for today")

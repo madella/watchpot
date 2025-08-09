@@ -71,15 +71,7 @@ def get_system_stats():
         except:
             if attempt == 2:
                 stats['public_ip'] = 'Unknown'
-            time.sleep(5)
-    
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        stats['private_ip'] = s.getsockname()[0]
-        s.close()
-    except:
-        stats['private_ip'] = 'Unknown'
+            time.sleep(5) 
     
     # System health
     try:
@@ -147,7 +139,6 @@ def create_system_info_text(stats):
     
     info += "Network Information:\n"
     info += f"   - Public IP:  {stats.get('public_ip', 'Unknown')}\n"
-    info += f"   - Private IP: {stats.get('private_ip', 'Unknown')}\n\n"
     
     info += "System Health:\n"
     info += f"   - CPU Temperature: {stats.get('cpu_temperature', 'Unknown')}\n"

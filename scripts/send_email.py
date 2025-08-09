@@ -305,19 +305,28 @@ def send_daily_email(config, logger):
 
 def should_send_now(config):
     """Check if we should send email now based on schedule"""
-    email_time = config.get('email_time', '19:00').strip()
+    email_times = config.get('email_time', '19:00').split(',')
     current_dt = datetime.datetime.now()
     
-    try:
-        hour, minute = map(int, email_time.split(':'))
-        scheduled_dt = current_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        
-        # Check if current time is within 10 minutes of scheduled time
-        time_diff = abs((current_dt - scheduled_dt).total_seconds())
-        return time_diff <= 600  # 10 minutes window
-        
-    except ValueError:
-        return False
+    # Allow 10 minutes window for each scheduled time
+    for scheduled_time in email_times:
+        scheduled_time = scheduled_time.strip()
+        if not scheduled_time:
+            continue
+            
+        try:
+            hour, minute = map(int, scheduled_time.split(':'))
+            scheduled_dt = current_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            
+            # Check if current time is within 10 minutes of scheduled time
+            time_diff = abs((current_dt - scheduled_dt).total_seconds())
+            if time_diff <= 600:  # 10 minutes window
+                return True
+                
+        except ValueError:
+            continue
+    
+    return False
 
 def main():
     import argparse

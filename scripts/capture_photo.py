@@ -92,8 +92,18 @@ def capture_single_photo(config, time_suffix, logger):
                 '--quality', config['photo_quality'],
                 '--immediate',
                 '--nopreview',
-                '--timeout', '10000'
+                '--timeout', '10000',
+                '--saturation', config.get('camera_saturation', '0.8'),
+                '--gain', config.get('camera_gain', '1.0'),
+                '--contrast', config.get('camera_contrast', '1.0'),
+                '--brightness', config.get('camera_brightness', '0.0')
             ]
+            
+            # Add AWB settings (manual gains override AWB mode for NoIR cameras)
+            if 'camera_awbgains' in config and config['camera_awbgains'].strip():
+                cmd.extend(['--awbgains', config['camera_awbgains']])
+            else:
+                cmd.extend(['--awb', config.get('camera_awb', 'auto')])
             
             logger.info(f"Attempt {attempt + 1}/{max_retries}: Capturing {filename}")
             

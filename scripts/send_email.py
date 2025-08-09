@@ -229,7 +229,7 @@ def send_daily_email(config, logger):
             msg['To'] = config['recipients']
             
             # Subject
-            timestamp = stats['timestamp']
+            timestamp = stats.get('timestamp', datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             today_date = datetime.date.today().strftime('%Y-%m-%d')
             subject = config.get('email_subject', 'WatchPot Daily Report - {date}')
             subject = subject.format(date=today_date, timestamp=timestamp)
@@ -322,7 +322,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='WatchPot Email Sender')
-    parser.add_argument('--config', default='../config/watchpot.conf', help='Configuration file')
+    parser.add_argument('--config', default='config/watchpot.conf', help='Configuration file')
     parser.add_argument('--force', action='store_true', help='Force send regardless of schedule')
     parser.add_argument('--test', action='store_true', help='Test mode - send with current photos')
     

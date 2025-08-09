@@ -63,14 +63,14 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     
     # Create temporary cron file
     cat > /tmp/watchpot_cron << EOF
-# WatchPot - Capture photos every 2 hours
-0 */2 * * * $SCRIPT_DIR/capture_photo.py --config $(pwd)/config/watchpot.conf
+# WatchPot - Check for scheduled photos every 10 minutes
+*/10 * * * * $SCRIPT_DIR/capture_photo.py --config $(pwd)/config/watchpot.conf
 
-# WatchPot - Send daily email at 19:00
-0 19 * * * $SCRIPT_DIR/send_email.py --config $(pwd)/config/watchpot.conf
+# WatchPot - Check for scheduled email every 10 minutes  
+*/10 * * * * $SCRIPT_DIR/send_email.py --config $(pwd)/config/watchpot.conf
 
-# WatchPot - Auto-restart capture if needed (every 10 minutes)
-*/10 * * * * pgrep -f capture_photo.py || $SCRIPT_DIR/capture_photo.py --config $(pwd)/config/watchpot.conf --force
+# WatchPot - Auto-restart capture if needed (every 30 minutes)
+*/30 * * * * pgrep -f capture_photo.py || $SCRIPT_DIR/capture_photo.py --config $(pwd)/config/watchpot.conf --force
 EOF
     
     # Install cron jobs

@@ -21,11 +21,12 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from pathlib import Path
 
-def setup_logging(log_level='INFO'):
+def setup_logging(config):
     """Setup logging"""
     log_dir = Path('logs')
     log_dir.mkdir(parents=True, exist_ok=True)
     
+    log_level = config.get('log_level', 'INFO')
     level = getattr(logging, log_level.upper(), logging.INFO)
     logging.basicConfig(
         level=level,
@@ -131,6 +132,116 @@ def get_today_photos(photos_dir):
     photos.sort()
     return [str(p) for p in photos]
 
+def get_sent_photos_file(photos_dir):
+    """Get path to file tracking sent photos"""
+    today = datetime.date.today()
+    daily_dir = Path(photos_dir) / f"daily_{today.strftime('%Y%m%d')}"
+    return daily_dir / ".sent_photos"
+
+def load_sent_photos(photos_dir):
+    """Load list of photos already sent"""
+    sent_file = get_sent_photos_file(photos_dir)
+    if sent_file.exists():
+        try:
+            with open(sent_file, 'r') as f:
+                return [line.strip() for line in f if line.strip()]
+        except:
+            return []
+    return []
+
+def save_sent_photos(photos_dir, sent_photos):
+    """Save list of photos already sent"""
+    sent_file = get_sent_photos_file(photos_dir)
+    sent_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(sent_file, 'w') as f:
+        for photo in sent_photos:
+            f.write(f"{photo}\n")
+
+def get_photos_to_send(photos_dir, incremental=False):
+    """Get photos to send, optionally filtering out already sent ones"""
+    all_photos = get_today_photos(photos_dir)
+    
+    if not incremental:
+        return all_photos
+    
+    sent_photos = load_sent_photos(photos_dir)
+    new_photos = [p for p in all_photos if os.path.basename(p) not in sent_photos]
+    return new_photos
+
+def select_single_photo(photo_paths, selection_method='last'):
+    """Select a single photo from the list based on the method"""
+    if not photo_paths:
+        return None
+    
+    if selection_method == 'first':
+        return photo_paths[0]
+    elif selection_method == 'last':
+        return photo_paths[-1]
+    elif selection_method == 'middle':
+        return photo_paths[len(photo_paths) // 2]
+    elif selection_method == 'random':
+        import random
+        return random.choice(photo_paths)
+    else:
+        return photo_paths[-1]  # Default to last
+
+def create_gif_from_photos(photo_paths, output_path, max_size_mb=20, config=None, logger=None):
+    """Create an animated GIF directly from photos"""
+    if not photo_paths:
+        return None
+    
+    try:
+        import subprocess
+        
+        # Get GIF settings from config or use defaults
+        gif_delay_raw = config.get('gif_delay', '50') if config else '50'
+        gif_width_raw = config.get('gif_width', '1920') if config else '1920'
+        gif_height_raw = config.get('gif_height', '1080') if config else '1080'
+        
+        gif_delay = int(gif_delay_raw.split('#')[0].strip())
+        gif_width = int(gif_width_raw.split('#')[0].strip())
+        gif_height = int(gif_height_raw.split('#')[0].strip())
+        
+        # Create GIF with center crop shifted up slightly for plant monitoring
+        gif_cmd = [
+            'convert',
+            '-delay', str(gif_delay),
+            '-loop', '0',
+            '-resize', f'{gif_width}x{gif_height}^',  # Fill to exact dimensions
+            '-gravity', 'center',  # Start from center
+            '-extent', f'{gif_width}x{gif_height}+0-{gif_height//18}',  # Shift up by 1/16 height
+            '-layers', 'optimize',
+            *photo_paths,
+            str(output_path)
+        ]
+        
+        if logger:
+            logger.info(f"Creating GIF from {len(photo_paths)} original photos...")
+        
+        result = subprocess.run(gif_cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            if logger:
+                logger.error(f"GIF creation failed: {result.stderr}")
+            return None
+        
+        # Check file size
+        if output_path.exists():
+            file_size_mb = output_path.stat().st_size / (1024 * 1024)
+            
+            if logger:
+                logger.info(f"GIF created: {output_path.name} ({file_size_mb:.1f}MB)")
+            
+            # Return GIF path if under size limit, None if too big
+            return str(output_path) if file_size_mb <= max_size_mb else None
+            
+    except Exception as e:
+        if logger:
+            logger.error(f"Error creating GIF: {e}")
+        return None
+    
+    return None
+
 def create_system_info_text(stats):
     """Create formatted system information"""
     info = "\n═══════════════════════════════════════\n"
@@ -205,11 +316,12 @@ def send_daily_email(config, logger):
         try:
             logger.info(f"Email attempt {attempt + 1}/{max_retries}")
             
-            # Get today's photos
+            # Get today's photos (incremental or all)
             photos_dir = config.get('photos_dir', 'photos')
-            photo_paths = get_today_photos(photos_dir)
+            incremental = config.get('email_incremental_photos', 'false').lower() == 'true'
+            photo_paths = get_photos_to_send(photos_dir, incremental)
             
-            logger.info(f"Found {len(photo_paths)} photos to send")
+            logger.info(f"Found {len(photo_paths)} photos to send {'(incremental)' if incremental else '(all)'}")
             
             # Get system stats
             stats = get_system_stats()
@@ -269,13 +381,58 @@ def send_daily_email(config, logger):
             text_part = MIMEText(body, 'plain', 'utf-8')
             msg.attach(text_part)
             
-            # Attach photos
+            # Handle photo attachments - GIF or individual photos
             attached_count = 0
-            for photo_path in photo_paths:
-                if attach_photo(msg, photo_path, logger):
-                    attached_count += 1
+            create_gif = config.get('email_create_gif', 'false').lower() == 'true'
             
-            logger.info(f"Attached {attached_count} photos")
+            if photo_paths and create_gif:
+                # Try to create GIF from original photos
+                gif_max_size = float(config.get('email_gif_max_size_mb', '20'))
+                today = datetime.date.today()
+                daily_dir = Path(photos_dir) / f"daily_{today.strftime('%Y%m%d')}"
+                gif_path = daily_dir / f"watchpot_timelapse_{today.strftime('%Y%m%d')}.gif"
+                
+                gif_file = create_gif_from_photos(photo_paths, gif_path, gif_max_size, config, logger)
+                
+                if gif_file and attach_photo(msg, gif_file, logger):
+                    attached_count = 1
+                    logger.info(f"Attached GIF with {len(photo_paths)} photos")
+                    
+                    # Optionally attach a single high-res photo along with GIF
+                    attach_single_raw = config.get('email_attach_single_photo', 'false')
+                    attach_single = attach_single_raw.split('#')[0].strip().lower() == 'true'
+                    if attach_single:
+                        selection_method_raw = config.get('email_single_photo_selection', 'last')
+                        selection_method = selection_method_raw.split('#')[0].strip()
+                        single_photo = select_single_photo(photo_paths, selection_method)
+                        if single_photo and attach_photo(msg, single_photo, logger):
+                            attached_count += 1
+                            logger.info(f"Attached single high-res photo ({selection_method}): {os.path.basename(single_photo)}")
+                else:
+                    # GIF failed or too big - send individual photos
+                    if gif_file is None:
+                        logger.warning("GIF creation failed, sending individual photos")
+                    else:
+                        logger.warning("GIF too large, sending individual photos instead")
+                    
+                    for photo_path in photo_paths:
+                        if attach_photo(msg, photo_path, logger):
+                            attached_count += 1
+            else:
+                # Attach individual photos
+                for photo_path in photo_paths:
+                    if attach_photo(msg, photo_path, logger):
+                        attached_count += 1
+            
+            # Log attachment summary
+            if create_gif and attached_count >= 1:
+                attach_single = config.get('email_attach_single_photo', 'false').lower() == 'true'
+                if attach_single and attached_count == 2:
+                    logger.info(f"Attached {attached_count} files: GIF + 1 high-res photo")
+                else:
+                    logger.info(f"Attached {attached_count} file(s): GIF")
+            else:
+                logger.info(f"Attached {attached_count} individual photos")
             
             # Send email
             smtp_server = config.get('smtp_server', 'smtp.gmail.com')
@@ -292,6 +449,14 @@ def send_daily_email(config, logger):
                 server.send_message(msg, to_addrs=recipients)
                 
                 logger.info(f"Email sent successfully to {len(recipients)} recipients")
+                
+                # Update sent photos list for incremental sending
+                if incremental and photo_paths:
+                    sent_photos = load_sent_photos(photos_dir)
+                    new_sent = sent_photos + [os.path.basename(p) for p in photo_paths]
+                    save_sent_photos(photos_dir, new_sent)
+                    logger.info(f"Updated sent photos list: {len(new_sent)} total")
+                
                 return True
                 
         except Exception as e:
@@ -320,7 +485,7 @@ def should_send_now(config):
             
             # Check if current time is within 10 minutes of scheduled time
             time_diff = abs((current_dt - scheduled_dt).total_seconds())
-            if time_diff <= 600:  # 10 minutes window
+            if time_diff <= 301:  # 5 minutes window
                 return True
                 
         except ValueError:
@@ -340,7 +505,7 @@ def main():
     
     # Load configuration
     config = load_config(args.config)
-    logger = setup_logging(config.get('log_level', 'INFO'))
+    logger = setup_logging(config)
     
     # Check if we should send
     if not args.force and not args.test:

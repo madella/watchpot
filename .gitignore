@@ -4,6 +4,7 @@ logs/
 
 # Configuration files (user-specific)
 config/watchpot.conf
+config/watchpot.conf.backup
 
 # File di configurazione sensibili
 /etc/watchpot/email_config.json

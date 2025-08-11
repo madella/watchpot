@@ -96,7 +96,8 @@ def capture_single_photo(config, time_suffix, logger):
                 '--saturation', config.get('camera_saturation', '0.8'),
                 '--gain', config.get('camera_gain', '1.0'),
                 '--contrast', config.get('camera_contrast', '1.0'),
-                '--brightness', config.get('camera_brightness', '0.0')
+                '--brightness', config.get('camera_brightness', '0.0'),
+                '--sharpness', config.get('camera_sharpness', '1.0')
             ]
             
             # Add AWB settings (manual gains override AWB mode for NoIR cameras)
